@@ -164,6 +164,27 @@
       return `photos/${walkId}/${photoId}_${size}.${format}`;
     }
 
+    const fullPhotoCache = new Map();
+
+    function photoCacheKey(walkId, photoId) {
+      return `${walkId}/${photoId}`;
+    }
+
+    function getFullPhotoPicture(walkId, photoId) {
+      const key = photoCacheKey(walkId, photoId);
+      const cached = fullPhotoCache.get(key);
+      if (cached) {
+        return cached;
+      }
+
+      const { picture, img } = buildPhotoPicture(walkId, photoId, 'full', 'photo-overlay-image');
+      img.addEventListener('error', () => {
+        fullPhotoCache.delete(key);
+      }, { once: true });
+      fullPhotoCache.set(key, picture);
+      return picture;
+    }
+
     async function photoFileExists(url) {
       try {
         const response = await fetch(url, { method: 'HEAD' });
@@ -252,61 +273,6 @@
       return { picture, img };
     }
 
-    function openFullPhotoView(walkId, photoId, title) {
-      const avif = photoUrl(walkId, photoId, 'full', 'avif');
-      const webp = photoUrl(walkId, photoId, 'full', 'webp');
-      const safeTitle = title
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;');
-
-      const popup = window.open('', '_blank', 'noopener,noreferrer');
-      if (popup) {
-        popup.document.write(`<!DOCTYPE html>
-<html lang="ja">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${safeTitle}</title>
-  <style>
-    body {
-      margin: 0;
-      min-height: 100vh;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      background: #111;
-    }
-    picture, img {
-      display: block;
-      max-width: 100vw;
-      max-height: 100vh;
-      width: auto;
-      height: auto;
-    }
-    p {
-      color: #fff;
-      font-family: system-ui, sans-serif;
-      padding: 1rem;
-    }
-  </style>
-</head>
-<body>
-  <picture>
-    <source srcset="${avif}" type="image/avif">
-    <source srcset="${webp}" type="image/webp">
-    <img src="${webp}" alt="${safeTitle}" onerror="document.body.innerHTML='<p>このブラウザでは AVIF / WebP 形式の画像を表示できません。</p>'">
-  </picture>
-</body>
-</html>`);
-        popup.document.close();
-        return;
-      }
-
-      showPhotoOverlay(walkId, photoId, title);
-    }
-
     function showPhotoOverlay(walkId, photoId, title) {
       let overlay = document.getElementById('photo-overlay');
       if (!overlay) {
@@ -338,12 +304,32 @@
 
       const viewer = overlay.querySelector('.photo-overlay-viewer');
       const titleEl = overlay.querySelector('.photo-overlay-title');
+      const key = photoCacheKey(walkId, photoId);
       titleEl.textContent = title;
+
+      const cachedPicture = fullPhotoCache.get(key);
+      if (overlay.dataset.photoKey === key && cachedPicture && viewer.contains(cachedPicture)) {
+        overlay.hidden = false;
+        return;
+      }
+
+      overlay.dataset.photoKey = key;
       viewer.replaceChildren();
 
-      const { picture, img } = buildPhotoPicture(walkId, photoId, 'full', 'photo-overlay-image');
-      img.addEventListener('error', () => showPhotoError(viewer), { once: true });
-      viewer.appendChild(picture);
+      const picture = getFullPhotoPicture(walkId, photoId);
+      const img = picture.querySelector('img');
+      if (img.complete && img.naturalWidth === 0) {
+        fullPhotoCache.delete(key);
+        showPhotoError(viewer);
+      } else {
+        if (!img.complete) {
+          img.addEventListener('error', () => {
+            fullPhotoCache.delete(key);
+            showPhotoError(viewer);
+          }, { once: true });
+        }
+        viewer.appendChild(picture);
+      }
       overlay.hidden = false;
     }
 
@@ -386,7 +372,7 @@
         expandBtn.addEventListener('click', (event) => {
           L.DomEvent.stopPropagation(event);
           event.preventDefault();
-          openFullPhotoView(walkId, photoId, wptName);
+          showPhotoOverlay(walkId, photoId, wptName);
         });
         viewer.appendChild(expandBtn);
       }, { once: true });
