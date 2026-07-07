@@ -1,0 +1,319 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: #1a1a1a;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem 1rem;
+  padding: 0.75rem 1rem;
+  background: #f7f7f7;
+  border-bottom: 1px solid #ddd;
+}
+
+.header-title {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.75rem;
+}
+
+header h1 {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.attribution {
+  margin: 0;
+  font-size: 0.75rem;
+  color: #555;
+}
+
+.attribution a {
+  color: #2c5282;
+}
+
+.control {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.control-label {
+  font-size: 0.85rem;
+  color: #444;
+  white-space: nowrap;
+}
+
+#walk-select,
+#tile-select {
+  min-width: 10rem;
+  padding: 0.4rem 0.6rem;
+  font-size: 0.95rem;
+  border: 1px solid #bbb;
+  border-radius: 4px;
+  background: #fff;
+}
+
+#walk-select {
+  min-width: 14rem;
+}
+
+.toggle {
+  cursor: pointer;
+  user-select: none;
+}
+
+.toggle input {
+  margin: 0;
+}
+
+.track-stats {
+  position: relative;
+}
+
+.track-stats-badge {
+  padding: 0.3rem 0.55rem;
+  font-size: 0.85rem;
+  font-weight: 500;
+  background: #e8f0fe;
+  border-radius: 4px;
+  color: #1a365d;
+  white-space: nowrap;
+}
+
+.track-stats-details {
+  position: relative;
+}
+
+.track-stats-details summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.55rem;
+  border: 1px solid #bbb;
+  border-radius: 4px;
+  background: #fff;
+  font-size: 0.85rem;
+  user-select: none;
+}
+
+.track-stats-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.track-stats-summary-dist {
+  font-weight: 600;
+  color: #1a365d;
+}
+
+.track-stats-summary-label::after {
+  content: ' ▾';
+  font-size: 0.7rem;
+  color: #666;
+}
+
+.track-stats-details[open] .track-stats-summary-label::after {
+  content: ' ▴';
+}
+
+.track-stats-panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 1000;
+  min-width: 20rem;
+  padding: 0.5rem 0.65rem;
+  background: #fff;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
+  font-size: 0.82rem;
+}
+
+.track-stats-row {
+  display: grid;
+  grid-template-columns: 4.2rem 1fr;
+  gap: 0.2rem 0.5rem;
+  align-items: start;
+  padding: 0.35rem 0;
+}
+
+.track-stats-row + .track-stats-row {
+  border-top: 1px solid #eee;
+}
+
+.track-stats-label {
+  color: #555;
+  font-size: 0.78rem;
+}
+
+.track-stats-value {
+  font-weight: 500;
+}
+
+.track-stats-dual {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.track-stats-dual span {
+  font-weight: 500;
+}
+
+.track-stats-dual .sub {
+  display: inline-block;
+  min-width: 2.4rem;
+  font-weight: 400;
+  font-size: 0.75rem;
+  color: #666;
+}
+
+#status {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #666;
+}
+
+#status[hidden] {
+  display: none;
+}
+
+#map {
+  height: calc(100% - 57px);
+  width: 100%;
+}
+
+.leaflet-tooltip {
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+
+.wpt-popup {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.wpt-popup-title {
+  margin: 0;
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.wpt-photo-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.wpt-photo-button,
+.wpt-photo-expand {
+  padding: 0.3rem 0.55rem;
+  font-size: 0.82rem;
+  border: 1px solid #bbb;
+  border-radius: 4px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.wpt-photo-button:hover,
+.wpt-photo-expand:hover {
+  background: #f3f3f3;
+}
+
+.wpt-photo-viewer {
+  min-height: 0.5rem;
+}
+
+.wpt-photo-viewer picture {
+  display: block;
+}
+
+.wpt-photo-image {
+  display: block;
+  max-width: 280px;
+  width: 100%;
+  height: auto;
+  border-radius: 4px;
+}
+
+.wpt-photo-expand {
+  margin-top: 0.4rem;
+}
+
+.wpt-photo-error {
+  margin: 0;
+  font-size: 0.82rem;
+  color: #a94442;
+}
+
+.photo-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+}
+
+.photo-overlay-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+}
+
+.photo-overlay-panel {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  max-width: min(96vw, 1200px);
+  max-height: 96vh;
+  margin: 2vh auto;
+  padding: 0.75rem;
+  background: #111;
+  border-radius: 8px;
+}
+
+.photo-overlay-close {
+  align-self: flex-end;
+  border: none;
+  background: transparent;
+  color: #fff;
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.photo-overlay-title {
+  margin: 0;
+  color: #fff;
+  font-size: 0.95rem;
+}
+
+.photo-overlay-viewer {
+  overflow: auto;
+}
+
+.photo-overlay-image {
+  display: block;
+  max-width: min(92vw, 1200px);
+  max-height: 82vh;
+  width: auto;
+  height: auto;
+}

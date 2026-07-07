@@ -1,0 +1,903 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>散歩マップ</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+        crossorigin="">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header>
+    <div class="header-title">
+      <h1>散歩マップ</h1>
+      <p class="attribution">
+        出典：<a href="https://maps.gsi.go.jp/development/ichiran.html"
+               target="_blank" rel="noopener">国土地理院（地理院タイル）</a>
+      </p>
+    </div>
+    <label class="control">
+      <span class="control-label">散歩</span>
+      <select id="walk-select" aria-label="散歩を選択">
+        <option value="">読み込み中…</option>
+      </select>
+    </label>
+    <label class="control">
+      <span class="control-label">地図</span>
+      <select id="tile-select" aria-label="地図の種類">
+        <option value="std">標準地図</option>
+        <option value="pale">淡色地図</option>
+        <option value="blank">白地図</option>
+        <option value="seamlessphoto">写真</option>
+      </select>
+    </label>
+    <label class="control toggle">
+      <input type="checkbox" id="points-toggle" checked>
+      <span class="control-label">点を表示</span>
+    </label>
+    <div id="track-stats" class="track-stats" hidden></div>
+    <p id="status" role="status" hidden></p>
+  </header>
+  <div id="map"></div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+          integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+          crossorigin=""></script>
+  <script type="module">
+    import { gpx as gpxToGeoJSON } from 'https://esm.sh/@tmcw/togeojson@7.1.2';
+
+    const GSI_ICHIRAN = 'https://maps.gsi.go.jp/development/ichiran.html';
+    const GSI_ATTRIBUTION =
+      '<a href="' + GSI_ICHIRAN + '" target="_blank" rel="noopener">国土地理院（地理院タイル）</a>';
+
+    const TILE_LAYERS = {
+      std: {
+        label: '標準地図',
+        url: 'https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png',
+        maxZoom: 18,
+      },
+      pale: {
+        label: '淡色地図',
+        url: 'https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png',
+        maxZoom: 18,
+      },
+      blank: {
+        label: '白地図',
+        url: 'https://cyberjapandata.gsi.go.jp/xyz/blank/{z}/{x}/{y}.png',
+        maxZoom: 18,
+      },
+      seamlessphoto: {
+        label: '写真',
+        url: 'https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg',
+        maxZoom: 18,
+      },
+    };
+
+    const select = document.getElementById('walk-select');
+    const tileSelect = document.getElementById('tile-select');
+    const pointsToggle = document.getElementById('points-toggle');
+    const trackStatsEl = document.getElementById('track-stats');
+    const status = document.getElementById('status');
+
+    const map = L.map('map', { zoomControl: true });
+    let baseLayer = createTileLayer('std');
+    baseLayer.addTo(map);
+    map.setView([35.68, 139.76], 10);
+
+    let trackLayer = null;
+    let pointMarkers = [];
+    let walkList = [];
+    let photoList = {};
+
+    const PHOTO_FORMAT_ERROR = 'このブラウザでは AVIF / WebP 形式の画像を表示できません。';
+
+    function createTileLayer(key) {
+      const tile = TILE_LAYERS[key];
+      return L.tileLayer(tile.url, {
+        attribution: GSI_ATTRIBUTION,
+        maxZoom: tile.maxZoom,
+      });
+    }
+
+    function setStatus(message) {
+      status.textContent = message;
+      status.hidden = !message;
+    }
+
+    function setPointsVisible(visible) {
+      for (const marker of pointMarkers) {
+        marker.setStyle({
+          opacity: visible ? 1 : 0,
+          fillOpacity: visible ? 0.75 : 0,
+        });
+      }
+    }
+
+    function formatTime(isoString) {
+      return new Date(isoString).toLocaleString('ja-JP', {
+        timeZone: 'Asia/Tokyo',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      });
+    }
+
+    function formatStatDateTime(isoString) {
+      const parts = new Intl.DateTimeFormat('ja-JP', {
+        timeZone: 'Asia/Tokyo',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+      }).formatToParts(new Date(isoString));
+
+      const get = (type) => parts.find((p) => p.type === type)?.value ?? '00';
+      return `${get('year')}/${get('month')}/${get('day')} ${get('hour')}:${get('minute')}:${get('second')}`;
+    }
+
+    function parseWaypoints(doc) {
+      const waypoints = [];
+      for (const wpt of doc.getElementsByTagName('wpt')) {
+        const nameEl = wpt.getElementsByTagName('name')[0];
+        const eleEl = wpt.getElementsByTagName('ele')[0];
+        const timeEl = wpt.getElementsByTagName('time')[0];
+        waypoints.push({
+          lat: parseFloat(wpt.getAttribute('lat')),
+          lon: parseFloat(wpt.getAttribute('lon')),
+          name: nameEl ? nameEl.textContent.trim() : '',
+          ele: eleEl ? parseFloat(eleEl.textContent) : null,
+          time: timeEl ? timeEl.textContent : null,
+        });
+      }
+      return waypoints;
+    }
+
+    function photoUrl(walkId, photoId, size, format) {
+      return `photos/${walkId}/${photoId}_${size}.${format}`;
+    }
+
+    async function photoFileExists(url) {
+      try {
+        const response = await fetch(url, { method: 'HEAD' });
+        return response.ok;
+      } catch {
+        return false;
+      }
+    }
+
+    async function validatePhotoSet(walkId, photoId) {
+      const sizes = ['thumb', 'full'];
+      const formats = ['avif', 'webp'];
+      const checks = await Promise.all(
+        sizes.flatMap((size) =>
+          formats.map((format) => photoFileExists(photoUrl(walkId, photoId, size, format))),
+        ),
+      );
+      return checks.every(Boolean);
+    }
+
+    async function resolvePhotoWaypoints(walkId, doc) {
+      const entries = photoList[walkId];
+      if (!Array.isArray(entries) || entries.length === 0) {
+        return [];
+      }
+
+      const waypoints = parseWaypoints(doc);
+      const resolved = [];
+
+      for (const entry of entries) {
+        if (!entry?.name || !Array.isArray(entry.photos) || entry.photos.length === 0) {
+          console.warn(`photo-list の項目が不正です (${walkId})`, entry);
+          continue;
+        }
+
+        const wpt = waypoints.find((item) => item.name === entry.name);
+        if (!wpt) {
+          console.warn(`wpt が見つかりません (${walkId}): ${entry.name}`);
+          continue;
+        }
+
+        const validatedPhotos = [];
+        for (const photoId of entry.photos) {
+          if (await validatePhotoSet(walkId, photoId)) {
+            validatedPhotos.push(photoId);
+          } else {
+            validatedPhotos.length = 0;
+            console.warn(`写真ファイルが不足しています (${walkId}/${photoId})`);
+            break;
+          }
+        }
+
+        if (validatedPhotos.length === entry.photos.length) {
+          resolved.push({ wpt, photos: validatedPhotos });
+        }
+      }
+
+      return resolved;
+    }
+
+    function showPhotoError(viewer) {
+      viewer.replaceChildren();
+      const message = document.createElement('p');
+      message.className = 'wpt-photo-error';
+      message.textContent = PHOTO_FORMAT_ERROR;
+      viewer.appendChild(message);
+    }
+
+    function buildPhotoPicture(walkId, photoId, size, className) {
+      const picture = document.createElement('picture');
+      const sourceAvif = document.createElement('source');
+      sourceAvif.type = 'image/avif';
+      sourceAvif.srcset = photoUrl(walkId, photoId, size, 'avif');
+
+      const sourceWebp = document.createElement('source');
+      sourceWebp.type = 'image/webp';
+      sourceWebp.srcset = photoUrl(walkId, photoId, size, 'webp');
+
+      const img = document.createElement('img');
+      img.className = className;
+      img.alt = '';
+      img.decoding = 'async';
+      img.src = photoUrl(walkId, photoId, size, 'webp');
+
+      picture.append(sourceAvif, sourceWebp, img);
+      return { picture, img };
+    }
+
+    function openFullPhotoView(walkId, photoId, title) {
+      const avif = photoUrl(walkId, photoId, 'full', 'avif');
+      const webp = photoUrl(walkId, photoId, 'full', 'webp');
+      const safeTitle = title
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+
+      const popup = window.open('', '_blank', 'noopener,noreferrer');
+      if (popup) {
+        popup.document.write(`<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${safeTitle}</title>
+  <style>
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      background: #111;
+    }
+    picture, img {
+      display: block;
+      max-width: 100vw;
+      max-height: 100vh;
+      width: auto;
+      height: auto;
+    }
+    p {
+      color: #fff;
+      font-family: system-ui, sans-serif;
+      padding: 1rem;
+    }
+  </style>
+</head>
+<body>
+  <picture>
+    <source srcset="${avif}" type="image/avif">
+    <source srcset="${webp}" type="image/webp">
+    <img src="${webp}" alt="${safeTitle}" onerror="document.body.innerHTML='<p>このブラウザでは AVIF / WebP 形式の画像を表示できません。</p>'">
+  </picture>
+</body>
+</html>`);
+        popup.document.close();
+        return;
+      }
+
+      showPhotoOverlay(walkId, photoId, title);
+    }
+
+    function showPhotoOverlay(walkId, photoId, title) {
+      let overlay = document.getElementById('photo-overlay');
+      if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.id = 'photo-overlay';
+        overlay.className = 'photo-overlay';
+        overlay.hidden = true;
+        overlay.innerHTML = `
+          <div class="photo-overlay-backdrop"></div>
+          <div class="photo-overlay-panel" role="dialog" aria-modal="true">
+            <button type="button" class="photo-overlay-close" aria-label="閉じる">×</button>
+            <p class="photo-overlay-title"></p>
+            <div class="photo-overlay-viewer"></div>
+          </div>
+        `;
+        document.body.appendChild(overlay);
+
+        const close = () => {
+          overlay.hidden = true;
+        };
+        overlay.querySelector('.photo-overlay-backdrop').addEventListener('click', close);
+        overlay.querySelector('.photo-overlay-close').addEventListener('click', close);
+        document.addEventListener('keydown', (event) => {
+          if (event.key === 'Escape' && !overlay.hidden) {
+            close();
+          }
+        });
+      }
+
+      const viewer = overlay.querySelector('.photo-overlay-viewer');
+      const titleEl = overlay.querySelector('.photo-overlay-title');
+      titleEl.textContent = title;
+      viewer.replaceChildren();
+
+      const { picture, img } = buildPhotoPicture(walkId, photoId, 'full', 'photo-overlay-image');
+      img.addEventListener('error', () => showPhotoError(viewer), { once: true });
+      viewer.appendChild(picture);
+      overlay.hidden = false;
+    }
+
+    function loadPhotoViewer(viewer, walkId, photoId, triggerButton, wptName) {
+      if (viewer.dataset.loadedPhotoId === photoId) {
+        if (triggerButton) {
+          triggerButton.hidden = true;
+        }
+        return;
+      }
+
+      viewer.replaceChildren();
+      viewer.dataset.loadedPhotoId = photoId;
+
+      const { picture, img } = buildPhotoPicture(walkId, photoId, 'thumb', 'wpt-photo-image');
+
+      let settled = false;
+      const fail = () => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        delete viewer.dataset.loadedPhotoId;
+        showPhotoError(viewer);
+      };
+
+      img.addEventListener('load', () => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        if (triggerButton) {
+          triggerButton.hidden = true;
+        }
+
+        const expandBtn = document.createElement('button');
+        expandBtn.type = 'button';
+        expandBtn.className = 'wpt-photo-expand';
+        expandBtn.textContent = '拡大';
+        expandBtn.addEventListener('click', (event) => {
+          L.DomEvent.stopPropagation(event);
+          event.preventDefault();
+          openFullPhotoView(walkId, photoId, wptName);
+        });
+        viewer.appendChild(expandBtn);
+      }, { once: true });
+
+      img.addEventListener('error', fail, { once: true });
+
+      viewer.appendChild(picture);
+    }
+
+    function createPhotoPopup(wptName, photoIds, walkId) {
+      const container = document.createElement('div');
+      container.className = 'wpt-popup';
+      L.DomEvent.disableClickPropagation(container);
+      L.DomEvent.disableScrollPropagation(container);
+
+      const title = document.createElement('p');
+      title.className = 'wpt-popup-title';
+      title.textContent = wptName;
+      container.appendChild(title);
+
+      const buttonRow = document.createElement('div');
+      buttonRow.className = 'wpt-photo-buttons';
+      photoIds.forEach((photoId, index) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'wpt-photo-button';
+        button.textContent = photoIds.length === 1 ? '写真を見る' : `写真${index + 1}`;
+        button.addEventListener('click', (event) => {
+          L.DomEvent.stopPropagation(event);
+          event.preventDefault();
+          loadPhotoViewer(viewer, walkId, photoId, button, wptName);
+        });
+        buttonRow.appendChild(button);
+      });
+      container.appendChild(buttonRow);
+
+      const viewer = document.createElement('div');
+      viewer.className = 'wpt-photo-viewer';
+      container.appendChild(viewer);
+
+      return container;
+    }
+
+    function renderPhotoWaypoints(photoWpts, walkId, group) {
+      for (const { wpt, photos } of photoWpts) {
+        const popup = createPhotoPopup(wpt.name, photos, walkId);
+        L.circleMarker([wpt.lat, wpt.lon], {
+          radius: 7,
+          color: '#1a5276',
+          weight: 2,
+          fillColor: '#3498db',
+          fillOpacity: 0.9,
+        })
+          .bindPopup(popup, { maxWidth: 320, minWidth: 220 })
+          .addTo(group);
+      }
+    }
+
+    function parseTrackPoints(doc) {
+      const points = [];
+      for (const pt of doc.getElementsByTagName('trkpt')) {
+        const lat = parseFloat(pt.getAttribute('lat'));
+        const lon = parseFloat(pt.getAttribute('lon'));
+        const eleEl = pt.getElementsByTagName('ele')[0];
+        const timeEl = pt.getElementsByTagName('time')[0];
+        points.push({
+          lat,
+          lon,
+          ele: eleEl ? parseFloat(eleEl.textContent) : null,
+          time: timeEl ? timeEl.textContent : null,
+        });
+      }
+      return points;
+    }
+
+    function formatDuration(raw) {
+      const value = raw.trim();
+      const segments = value.split(':').map((s) => s.trim());
+
+      let hours = 0;
+      let minutes = 0;
+      let seconds = 0;
+
+      if (segments.length === 3) {
+        hours = parseInt(segments[0], 10);
+        minutes = parseInt(segments[1], 10);
+        seconds = parseInt(segments[2], 10);
+      } else if (segments.length === 2) {
+        minutes = parseInt(segments[0], 10);
+        seconds = parseInt(segments[1], 10);
+      } else if (segments.length === 1) {
+        minutes = parseInt(segments[0], 10);
+      } else {
+        return value;
+      }
+
+      if ([hours, minutes, seconds].some((n) => Number.isNaN(n))) {
+        return value;
+      }
+
+      return [hours, minutes, seconds]
+        .map((n) => String(n).padStart(2, '0'))
+        .join(':');
+    }
+
+    function normalizeGpxPaths(gpx) {
+      if (Array.isArray(gpx)) {
+        return gpx.filter((path) => typeof path === 'string' && path);
+      }
+      if (typeof gpx === 'string' && gpx) {
+        return [gpx];
+      }
+      return [];
+    }
+
+    function getWalkGpxPaths(walk) {
+      return normalizeGpxPaths(walk.gpx);
+    }
+
+    function parseDistanceKm(distanceStr) {
+      const match = distanceStr.match(/([\d.]+)\s*km/i);
+      return match ? parseFloat(match[1]) : null;
+    }
+
+    function sumDistances(gpxTexts) {
+      let total = 0;
+      let count = 0;
+      for (const text of gpxTexts) {
+        const stats = parseGpxStatistics(text);
+        if (!stats.distance) {
+          continue;
+        }
+        const km = parseDistanceKm(stats.distance);
+        if (km == null || Number.isNaN(km)) {
+          continue;
+        }
+        total += km;
+        count++;
+      }
+      if (count === 0) {
+        return null;
+      }
+      return `${parseFloat(total.toFixed(2))} km`;
+    }
+
+    function parseGpxStatistics(gpxText) {
+      const stats = {};
+
+      const distanceMatch = gpxText.match(/<!--\s*Distance\s*=\s*(.+?)\s*-->/);
+      if (distanceMatch) {
+        stats.distance = distanceMatch[1].trim();
+      }
+
+      const durationMatch = gpxText.match(/<!--\s*Duration\s*=\s*(.+?)\s*-->/);
+      if (durationMatch) {
+        const parts = durationMatch[1].split('|').map((s) => s.trim());
+        if (parts[0]) {
+          stats.durationTotal = formatDuration(parts[0]);
+        }
+        if (parts[1]) {
+          stats.durationMoving = formatDuration(parts[1]);
+        }
+      }
+
+      const speedMatch = gpxText.match(/<!--\s*Avg Speed\s*=\s*(.+?)\s*-->/);
+      if (speedMatch) {
+        const withoutUnit = speedMatch[1].trim().replace(/\s*km\/h\s*$/i, '');
+        const parts = withoutUnit.split('|').map((s) => s.trim());
+        if (parts[0]) {
+          stats.speedTotal = `${parts[0]} km/h`;
+        }
+        if (parts[1]) {
+          stats.speedMoving = `${parts[1]} km/h`;
+        }
+      }
+
+      return stats;
+    }
+
+    function parseTrackTimes(doc) {
+      const points = parseTrackPoints(doc);
+      const times = points.map((p) => p.time).filter(Boolean);
+      if (times.length === 0) {
+        return {};
+      }
+
+      return {
+        startTime: formatStatDateTime(times[0]),
+        endTime: formatStatDateTime(times[times.length - 1]),
+      };
+    }
+
+    function countStatItems(stats) {
+      let count = 0;
+      if (stats.distance) count++;
+      if (stats.startTime) count++;
+      if (stats.endTime) count++;
+      if (stats.durationTotal) count++;
+      if (stats.durationMoving) count++;
+      if (stats.speedTotal) count++;
+      if (stats.speedMoving) count++;
+      return count;
+    }
+
+    function appendDualValues(container, first, second, firstLabel, secondLabel) {
+      const dual = document.createElement('div');
+      dual.className = 'track-stats-dual';
+      if (first) {
+        const span = document.createElement('span');
+        span.innerHTML = '<span class="sub">' + firstLabel + '</span> ' + first;
+        dual.appendChild(span);
+      }
+      if (second) {
+        const span = document.createElement('span');
+        span.innerHTML = '<span class="sub">' + secondLabel + '</span> ' + second;
+        dual.appendChild(span);
+      }
+      container.appendChild(dual);
+    }
+
+    function appendStatRow(panel, label, value) {
+      const row = document.createElement('div');
+      row.className = 'track-stats-row';
+      const dt = document.createElement('span');
+      dt.className = 'track-stats-label';
+      dt.textContent = label;
+      const dd = document.createElement('span');
+      dd.className = 'track-stats-value';
+      dd.textContent = value;
+      row.append(dt, dd);
+      panel.appendChild(row);
+    }
+
+    function appendDualStatRow(panel, label, first, second, firstLabel = '全体', secondLabel = '移動') {
+      const row = document.createElement('div');
+      row.className = 'track-stats-row';
+      const dt = document.createElement('span');
+      dt.className = 'track-stats-label';
+      dt.textContent = label;
+      row.appendChild(dt);
+      appendDualValues(row, first, second, firstLabel, secondLabel);
+      panel.appendChild(row);
+    }
+
+    function renderMultiTrackStats(gpxTexts) {
+      const totalDistance = sumDistances(gpxTexts);
+      trackStatsEl.replaceChildren();
+      if (!totalDistance) {
+        trackStatsEl.hidden = true;
+        return;
+      }
+      trackStatsEl.hidden = false;
+
+      const badge = document.createElement('span');
+      badge.className = 'track-stats-badge';
+      badge.textContent = totalDistance;
+      trackStatsEl.appendChild(badge);
+    }
+
+    function renderTrackStats(gpxText, doc) {
+      const stats = { ...parseGpxStatistics(gpxText), ...parseTrackTimes(doc) };
+      trackStatsEl.replaceChildren();
+
+      const itemCount = countStatItems(stats);
+      if (itemCount === 0) {
+        trackStatsEl.hidden = true;
+        return;
+      }
+      trackStatsEl.hidden = false;
+
+      if (itemCount === 1 && stats.distance) {
+        const badge = document.createElement('span');
+        badge.className = 'track-stats-badge';
+        badge.textContent = stats.distance;
+        trackStatsEl.appendChild(badge);
+        return;
+      }
+
+      const details = document.createElement('details');
+      details.className = 'track-stats-details';
+
+      const summary = document.createElement('summary');
+      if (stats.distance) {
+        const dist = document.createElement('span');
+        dist.className = 'track-stats-summary-dist';
+        dist.textContent = stats.distance;
+        summary.appendChild(dist);
+      }
+      const label = document.createElement('span');
+      label.className = 'track-stats-summary-label';
+      label.textContent = '統計';
+      summary.appendChild(label);
+      details.appendChild(summary);
+
+      const panel = document.createElement('div');
+      panel.className = 'track-stats-panel';
+      panel.setAttribute('role', 'region');
+      panel.setAttribute('aria-label', '軌跡の統計');
+
+      if (stats.distance) {
+        appendStatRow(panel, '距離', stats.distance);
+      }
+      if (stats.startTime || stats.endTime) {
+        appendDualStatRow(panel, '時刻', stats.startTime, stats.endTime, '開始', '終了');
+      }
+      if (stats.durationTotal || stats.durationMoving) {
+        appendDualStatRow(panel, '時間', stats.durationTotal, stats.durationMoving);
+      }
+      if (stats.speedTotal || stats.speedMoving) {
+        appendDualStatRow(panel, '平均速度', stats.speedTotal, stats.speedMoving);
+      }
+
+      details.appendChild(panel);
+      trackStatsEl.appendChild(details);
+    }
+
+    function buildPointTooltip(point) {
+      const lines = [];
+      if (point.time) {
+        lines.push(formatTime(point.time));
+      }
+      if (point.ele != null && !Number.isNaN(point.ele)) {
+        lines.push(`標高 ${point.ele.toFixed(1)} m`);
+      }
+      return lines.join('<br>');
+    }
+
+    function clearTrack() {
+      if (trackLayer) {
+        map.removeLayer(trackLayer);
+        trackLayer = null;
+      }
+      pointMarkers = [];
+    }
+
+    function renderTrack(doc) {
+      const group = L.featureGroup();
+      const points = parseTrackPoints(doc);
+
+      if (points.length > 0) {
+        const latlngs = points.map((p) => [p.lat, p.lon]);
+        L.polyline(latlngs, {
+          color: '#c026d3',
+          weight: 4,
+          opacity: 0.9,
+        }).addTo(group);
+
+        for (const point of points) {
+          const tooltip = buildPointTooltip(point);
+          if (!tooltip) {
+            continue;
+          }
+          const marker = L.circleMarker([point.lat, point.lon], {
+            radius: 4,
+            color: '#a21caf',
+            weight: 1,
+            fillColor: '#e879f9',
+            fillOpacity: 0.75,
+          }).bindTooltip(tooltip, { sticky: true });
+          marker.addTo(group);
+          pointMarkers.push(marker);
+        }
+
+        setPointsVisible(pointsToggle.checked);
+      } else {
+        const geojson = gpxToGeoJSON(doc);
+        L.geoJSON(geojson, {
+          style: {
+            color: '#c026d3',
+            weight: 4,
+            opacity: 0.9,
+          },
+        }).addTo(group);
+      }
+
+      return group;
+    }
+
+    async function fetchGpx(path) {
+      if (Array.isArray(path)) {
+        throw new Error('GPX パスの指定が不正です（配列のまま取得しようとしました）');
+      }
+      if (typeof path !== 'string' || !path) {
+        throw new Error('GPX パスの指定が不正です');
+      }
+
+      const response = await fetch(path);
+      if (!response.ok) {
+        throw new Error(`GPX を取得できませんでした (${response.status}): ${path}`);
+      }
+
+      const text = await response.text();
+      const doc = new DOMParser().parseFromString(text, 'text/xml');
+      const parseError = doc.querySelector('parsererror');
+      if (parseError) {
+        throw new Error(`GPX の解析に失敗しました: ${path}`);
+      }
+
+      return { text, doc };
+    }
+
+    async function loadWalk(walk) {
+      const paths = getWalkGpxPaths(walk);
+      if (paths.length === 0) {
+        throw new Error('GPX ファイルが指定されていません');
+      }
+
+      clearTrack();
+      trackStatsEl.hidden = true;
+      trackStatsEl.replaceChildren();
+      setStatus('読み込み中…');
+
+      const results = await Promise.all(paths.map((path) => fetchGpx(path)));
+      const isMulti = paths.length > 1;
+
+      if (isMulti) {
+        renderMultiTrackStats(results.map((result) => result.text));
+      } else {
+        renderTrackStats(results[0].text, results[0].doc);
+      }
+
+      const group = L.featureGroup();
+      for (const { doc } of results) {
+        renderTrack(doc).eachLayer((layer) => group.addLayer(layer));
+      }
+
+      if (!isMulti && walk.id && walk.id !== 'all') {
+        const photoWpts = await resolvePhotoWaypoints(walk.id, results[0].doc);
+        renderPhotoWaypoints(photoWpts, walk.id, group);
+      }
+
+      trackLayer = group.addTo(map);
+
+      const bounds = trackLayer.getBounds();
+      if (bounds.isValid()) {
+        map.fitBounds(bounds, { padding: [40, 40] });
+      }
+
+      setStatus('');
+    }
+
+    function onTileChange() {
+      const key = tileSelect.value;
+      if (!TILE_LAYERS[key]) {
+        return;
+      }
+      map.removeLayer(baseLayer);
+      baseLayer = createTileLayer(key);
+      baseLayer.addTo(map);
+    }
+
+    async function onSelectChange() {
+      const index = select.selectedIndex;
+      if (index < 0 || !walkList[index]) {
+        return;
+      }
+
+      try {
+        await loadWalk(walkList[index]);
+      } catch (err) {
+        console.error(err);
+        setStatus(err.message);
+      }
+    }
+
+    async function init() {
+      tileSelect.addEventListener('change', onTileChange);
+      pointsToggle.addEventListener('change', () => {
+        setPointsVisible(pointsToggle.checked);
+      });
+
+      try {
+        const response = await fetch('gpx-list.json');
+        if (!response.ok) {
+          throw new Error('gpx-list.json を読み込めませんでした');
+        }
+
+        walkList = await response.json();
+        if (!Array.isArray(walkList) || walkList.length === 0) {
+          throw new Error('散歩データが登録されていません');
+        }
+
+        const photoResponse = await fetch('photo-list.json');
+        if (photoResponse.ok) {
+          photoList = await photoResponse.json();
+        } else {
+          photoList = {};
+        }
+
+        select.replaceChildren();
+        walkList.forEach((walk, index) => {
+          const option = document.createElement('option');
+          option.value = String(index);
+          option.textContent = walk.label;
+          select.appendChild(option);
+        });
+
+        select.addEventListener('change', onSelectChange);
+        await loadWalk(walkList[0]);
+      } catch (err) {
+        console.error(err);
+        select.replaceChildren();
+        const option = document.createElement('option');
+        option.textContent = '（データなし）';
+        select.appendChild(option);
+        select.disabled = true;
+        setStatus(err.message);
+      }
+    }
+
+    init();
+  </script>
+</body>
+</html>
