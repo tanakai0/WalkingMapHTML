@@ -145,6 +145,25 @@ header h1 {
   font-size: 0.82rem;
 }
 
+/* スマホ縦表示では header の折り返しで統計が左に来ることがあるため、
+   panel を右寄せ固定にすると左に溢れて読めなくなる。 */
+@media (max-width: 480px) {
+  .track-stats {
+    flex: 1 1 100%;
+  }
+
+  .track-stats-details {
+    width: 100%;
+  }
+
+  .track-stats-panel {
+    right: auto;
+    left: 0;
+    min-width: 0;
+    width: min(20rem, 92vw);
+  }
+}
+
 .track-stats-row {
   display: grid;
   grid-template-columns: 4.2rem 1fr;
