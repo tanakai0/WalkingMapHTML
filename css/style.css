@@ -169,6 +169,7 @@ header h1 {
     min-width: 20rem;
     width: 20rem;
     max-width: none;
+    /* ここは意図的に viewport に収めない（右にはみ出し許容） */
   }
 }
 
