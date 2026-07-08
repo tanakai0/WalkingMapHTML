@@ -163,12 +163,12 @@ header h1 {
   }
 
   .track-stats-panel {
+    /* 左端を揃え、右側にはみ出しても見えるようにする */
     right: auto;
     left: 0;
-    min-width: 0;
-    right: 0;
-    width: auto;
-    max-width: 100vw;
+    min-width: 20rem;
+    width: 20rem;
+    max-width: none;
   }
 }
 
