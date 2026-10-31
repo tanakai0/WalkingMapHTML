@@ -708,7 +708,7 @@
       pointMarkers = [];
     }
 
-    function renderTrack(doc) {
+    function renderTrack(doc, showMarkers = true) {
       const group = L.featureGroup();
       const points = parseTrackPoints(doc);
 
@@ -720,20 +720,23 @@
           opacity: 0.9,
         }).addTo(group);
 
-        for (const point of points) {
-          const tooltip = buildPointTooltip(point);
-          if (!tooltip) {
-            continue;
+        if (showMarkers) {
+          for (const point of points) {
+            const tooltip = buildPointTooltip(point);
+            if (!tooltip) {
+              continue;
+            }
+
+            const marker = L.circleMarker([point.lat, point.lon], {
+              radius: 4,
+              color: '#a21caf',
+              weight: 1,
+              fillColor: '#e879f9',
+              fillOpacity: 0.75,
+            }).bindTooltip(tooltip, { sticky: true });
+            marker.addTo(group);
+            pointMarkers.push(marker);
           }
-          const marker = L.circleMarker([point.lat, point.lon], {
-            radius: 4,
-            color: '#a21caf',
-            weight: 1,
-            fillColor: '#e879f9',
-            fillOpacity: 0.75,
-          }).bindTooltip(tooltip, { sticky: true });
-          marker.addTo(group);
-          pointMarkers.push(marker);
         }
 
         setPointsVisible(pointsToggle.checked);
@@ -781,6 +784,7 @@
       }
 
       clearTrack();
+      pointsToggle.disabled = walk.id === 'all';
       trackStatsEl.hidden = true;
       trackStatsEl.replaceChildren();
       setStatus('読み込み中…');
@@ -795,8 +799,10 @@
       }
 
       const group = L.featureGroup();
+      const showMarkers = walk.id !== 'all';
+
       for (const { doc } of results) {
-        renderTrack(doc).eachLayer((layer) => group.addLayer(layer));
+        renderTrack(doc, showMarkers).eachLayer((layer) => group.addLayer(layer));
       }
 
       if (!isMulti && walk.id && walk.id !== 'all') {
@@ -871,7 +877,17 @@
         });
 
         select.addEventListener('change', onSelectChange);
-        await loadWalk(walkList[0]);
+
+        const initialIndex = walkList.findLastIndex(
+          (walk) => walk.id !== 'all'
+        );
+
+        if (initialIndex === -1) {
+          throw new Error('表示できる散歩がありません');
+        }
+
+        select.selectedIndex = initialIndex;
+        await loadWalk(walkList[initialIndex]);
       } catch (err) {
         console.error(err);
         select.replaceChildren();
