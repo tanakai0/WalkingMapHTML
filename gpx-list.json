@@ -12,7 +12,8 @@
       "GPX_data/walk_20260913T074236_東急田園都市線.gpx",
       "GPX_data/walk_20261004T133320_東京タワーから東京スカイツリー.gpx",
       "GPX_data/walk_20261027T140110_東急池上線.gpx",
-      "GPX_data/walk_20261029T053142_JR山手線.gpx"
+      "GPX_data/walk_20261029T053142_JR山手線.gpx",
+      "GPX_data/walk_20261108T162928_京王競馬場線.gpx"
     ]
   },
   {
@@ -64,5 +65,10 @@
     "id": "walk_20261029T053142",
     "label": "2026-10-29 JR山手線",
     "gpx": "GPX_data/walk_20261029T053142_JR山手線.gpx"
+  },
+  {
+    "id": "walk_20261108T162928",
+    "label": "2026-11-08 京王競馬場線",
+    "gpx": "GPX_data/walk_20261108T162928_京王競馬場線.gpx"
   }
 ]
